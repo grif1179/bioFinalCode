@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"math"
+	// "math"
 	"sync"
 	"flag"
 	"strings"
@@ -48,6 +48,7 @@ var (
 	isProtein = flag.Bool("protein", false, "Flag that tells the program the given sequence is a amino acid sequence. \nDefault assumes nucleotide sequence.")
 	cores = flag.Int("cores", 12, "The number of cores to use.")
 )
+
 
 /**
 * Creates a 2d matrix that uses the score struct for each element.
@@ -227,7 +228,7 @@ func readScoringMatrix(scoreType string) ([][]int, map[string]int, error) {
 	return scoreMatrix, misMatchMap, nil
 }
 
-// var jobsWg sync.WaitGroup
+var jobsWg sync.WaitGroup
 var wg sync.WaitGroup
 
 type job struct {
@@ -284,8 +285,8 @@ func process(ch chan []job, matrix [][]score, misMatchMap map[string]int, scorin
 				matrix[i][j].leftBase = "-"
 				matrix[i][j].topBase = string(s1[j-1])
 			}
-			// jobsWg.Done()
 		}
+		jobsWg.Done()
 	}
 }
 
@@ -294,98 +295,93 @@ func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, sc
 	rows := len(matrix)
 	cols := len(matrix[0])
 	cores := *cores
-
+	myChannels := make([]chan []job, cores)
+	// for i := 0; i < cores; i++ {
+	// 	myChannels[i] = make(chan []job)
+	// 	wg.Add(1)
+	// 	go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
+	// }
+	batchSize := 12
 
 	// Creating and assigning jobs for
 	//diagnols that start from the first row.
 	for j := 1; j < cols; j++ {
 		jobs := make([]job, 0)
 		tempj := j
-		for i := 1; i < rows; i++ {
-			if tempj < 1 {
-				break
-			} 
-			// fmt.Printf("%d %d\n", i, tempj)
-			// jobsWg.Add(1)
-			jobs = append(jobs, job{i, tempj})
-			tempj--
-		}
-
-		batchSize := int(math.Ceil(float64(len(jobs))/float64(cores)))
-		myChannels := make([]chan []job, cores)
+		currCore := 0
 		for i := 0; i < cores; i++ {
 			myChannels[i] = make(chan []job)
 			wg.Add(1)
 			go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
 		}
-		for core := 0; core < cores; core++ {
-			start := core * batchSize
-			end := start + batchSize
-
-			if end >= len(jobs) {
-				// fmt.Println(jobs[start:])
-				myChannels[core] <- jobs[start:]
+		for i := 1; i < rows; i++ {
+			if tempj < 1 {
+				jobsWg.Add(1)
+				myChannels[currCore%cores] <- jobs
+				currCore++
 				break
-			} else {
-				// fmt.Println(jobs[start:end])
-				myChannels[core] <- jobs[start:end]
+			} 
+			// fmt.Printf("%d %d\n", i, tempj)
+			jobs = append(jobs, job{i, tempj})
+
+			if len(jobs) >= batchSize {
+				jobsWg.Add(1)
+				myChannels[currCore%cores] <- jobs
+				jobs = make([]job, 0)
+				currCore++
 			}
-			// fmt.Println()
+			tempj--
 		}
-		// fmt.Println()
 		for i := range myChannels {
 			close(myChannels[i])
 		}
 
 		wg.Wait()	
 	}
-
 	// Creating and assigning jobs for
 	//diagnols that start from the last col.
 	for i := 1; i < rows; i++ {
 		tempi := i
 		tempj := cols - 1
+		currCore := 0
 		jobs := make([]job, 0)
-		for {
-			if tempj < 1 || tempi >= rows {
-				break
-			} 
-
-			// fmt.Printf("%d %d\n", tempi, tempj)
-			jobs = append(jobs, job{tempi, tempj})
-			tempi++
-			tempj--		
-		}
-
-		batchSize := int(math.Ceil(float64(len(jobs))/float64(cores)))
-		myChannels := make([]chan []job, cores)
 		for i := 0; i < cores; i++ {
 			myChannels[i] = make(chan []job)
 			wg.Add(1)
 			go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
 		}
-		for core := 0; core < cores; core++ {
-			start := core * batchSize
-			end := start + batchSize
-
-			// jobsWg.Add(1)
-			if end >= len(jobs) {
-				// fmt.Println(jobs[start:])
-				myChannels[core] <- jobs[start:]
+		for {
+			if tempj < 1 || tempi >= rows {
+				jobsWg.Add(1)
+				myChannels[currCore%cores] <- jobs
+				currCore++
 				break
-			} else {
-				// fmt.Println(jobs[start:end])
-				myChannels[core] <- jobs[start:end]
+			} 
+
+			// fmt.Printf("%d %d\n", tempi, tempj)
+			jobs = append(jobs, job{tempi, tempj})
+
+			if len(jobs) >= batchSize {
+				jobsWg.Add(1)
+				myChannels[currCore%cores] <- jobs
+				jobs = make([]job, 0)
+				currCore++
 			}
-			// fmt.Println()
+			tempi++
+			tempj--		
 		}
-		// fmt.Println()
 		for i := range myChannels {
 			close(myChannels[i])
 		}
 
 		wg.Wait()	
 	}
+
+	// for i := range myChannels {
+	// 	close(myChannels[i])
+	// }
+
+	// wg.Wait()	
 	
 	// fmt.Println()
 	// printMatrix(matrix)

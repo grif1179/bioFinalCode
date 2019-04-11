@@ -12,6 +12,7 @@
             "program": "${fileDirname}",
             "env": {},
             "args": ["-type", "global","-s1", "GTAAC", "-s2", "GATAGG"]
+            // "args": ["-type", "global","-s1", "../data/DNA_seq1.fa", "-s2", "../data/DNA_seq2.fa"]
         }
     ]
 }
