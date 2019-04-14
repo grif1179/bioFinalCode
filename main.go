@@ -236,7 +236,7 @@ type job struct {
 	j int
 }
 
-func process(ch chan []job, matrix [][]score, misMatchMap map[string]int, scoringMatrix [][]int, myID int) {
+func process(ch chan job, matrix [][]score, misMatchMap map[string]int, scoringMatrix [][]int, myID int) {
 	match := *matchScore
 	mis := *misMatchScore
 	gap := *gap
@@ -244,49 +244,48 @@ func process(ch chan []job, matrix [][]score, misMatchMap map[string]int, scorin
 	s2 := *s2
 	var upVal, leftVal, diaVal int
 	for  {
-		msg, ok := <- ch
+		job, ok := <- ch
 		if !ok {
 			wg.Done()
 			return
 		} 
 
-		for _, job := range msg {
-			i := job.i
-			j := job.j
-			upVal = matrix[i-1][j].value + gap
-			leftVal = matrix[i][j-1].value + gap
-			if misMatchMap != nil {
-				firstCharLoc := misMatchMap[strings.ToUpper(string(s1[j-1]))]
-				secondCharLoc := misMatchMap[strings.ToUpper(string(s2[i-1]))]
-				matchScore := scoringMatrix[firstCharLoc][secondCharLoc]
-				diaVal = matrix[i-1][j-1].value + matchScore
+		i := job.i
+		j := job.j
+		upVal = matrix[i-1][j].value + gap
+		leftVal = matrix[i][j-1].value + gap
+		if misMatchMap != nil {
+			firstCharLoc := misMatchMap[strings.ToUpper(string(s1[j-1]))]
+			secondCharLoc := misMatchMap[strings.ToUpper(string(s2[i-1]))]
+			matchScore := scoringMatrix[firstCharLoc][secondCharLoc]
+			diaVal = matrix[i-1][j-1].value + matchScore
+		} else {
+			if s1[j-1] == s2[i-1] {
+				diaVal = matrix[i-1][j-1].value + match
 			} else {
-				if s1[j-1] == s2[i-1] {
-					diaVal = matrix[i-1][j-1].value + match
-				} else {
-					diaVal = matrix[i-1][j-1].value + mis
-				}
-			}
-
-			if diaVal > upVal && leftVal < diaVal {
-				matrix[i][j].value = diaVal
-				matrix[i][j].direction = diagonal
-				matrix[i][j].leftBase = string(s2[i-1])
-				matrix[i][j].topBase = string(s1[j-1])
-
-			} else if upVal > leftVal {
-				matrix[i][j].value = upVal
-				matrix[i][j].direction = up
-				matrix[i][j].leftBase = string(s2[i-1])
-				matrix[i][j].topBase = "-"
-			} else {
-				matrix[i][j].value = leftVal
-				matrix[i][j].direction = left
-				matrix[i][j].leftBase = "-"
-				matrix[i][j].topBase = string(s1[j-1])
+				diaVal = matrix[i-1][j-1].value + mis
 			}
 		}
-		jobsWg.Done()
+
+		if diaVal > upVal && leftVal < diaVal {
+			matrix[i][j].value = diaVal
+			matrix[i][j].direction = diagonal
+			matrix[i][j].leftBase = string(s2[i-1])
+			matrix[i][j].topBase = string(s1[j-1])
+
+		} else if upVal > leftVal {
+			matrix[i][j].value = upVal
+			matrix[i][j].direction = up
+			matrix[i][j].leftBase = string(s2[i-1])
+			matrix[i][j].topBase = "-"
+		} else {
+			matrix[i][j].value = leftVal
+			matrix[i][j].direction = left
+			matrix[i][j].leftBase = "-"
+			matrix[i][j].topBase = string(s1[j-1])
+		}
+
+		// jobsWg.Done()
 	}
 }
 
@@ -295,93 +294,72 @@ func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, sc
 	rows := len(matrix)
 	cols := len(matrix[0])
 	cores := *cores
-	myChannels := make([]chan []job, cores)
+	myChannel := make(chan job, 6)
+	// myChannels := make([]chan []job, cores)
 	// for i := 0; i < cores; i++ {
 	// 	myChannels[i] = make(chan []job)
 	// 	wg.Add(1)
 	// 	go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
 	// }
-	batchSize := 12
+	// batchSize := 12
 
 	// Creating and assigning jobs for
 	//diagnols that start from the first row.
 	for j := 1; j < cols; j++ {
-		jobs := make([]job, 0)
+		// jobs := make([]job, 0)
 		tempj := j
-		currCore := 0
+		// currCore := 0
+
+		myChannel := make(chan job, 6)
 		for i := 0; i < cores; i++ {
-			myChannels[i] = make(chan []job)
 			wg.Add(1)
-			go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
+			go process(myChannel, matrix, misMatchMap, scoringMatrix, i)
 		}
 		for i := 1; i < rows; i++ {
-			if tempj < 1 {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				currCore++
+			// jobsWg.Add(1)
+			if tempj <= 1 {
+				myChannel <- job{i, tempj}
 				break
 			} 
-			// fmt.Printf("%d %d\n", i, tempj)
-			jobs = append(jobs, job{i, tempj})
 
-			if len(jobs) >= batchSize {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				jobs = make([]job, 0)
-				currCore++
-			}
+			myChannel <- job{i, tempj}
 			tempj--
 		}
-		for i := range myChannels {
-			close(myChannels[i])
-		}
+		close(myChannel)
 
 		wg.Wait()	
+		// jobsWg.Wait()
 	}
 	// Creating and assigning jobs for
 	//diagnols that start from the last col.
 	for i := 1; i < rows; i++ {
 		tempi := i
 		tempj := cols - 1
-		currCore := 0
-		jobs := make([]job, 0)
+		myChannel := make(chan job, 6)
 		for i := 0; i < cores; i++ {
-			myChannels[i] = make(chan []job)
 			wg.Add(1)
-			go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
+			go process(myChannel, matrix, misMatchMap, scoringMatrix, i)
 		}
 		for {
-			if tempj < 1 || tempi >= rows {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				currCore++
+			// jobsWg.Add(1)
+			if tempj == 1 || tempi == rows-1 {
+				myChannel <- job{tempi, tempj}
 				break
 			} 
+			myChannel <- job{tempi, tempj}
 
-			// fmt.Printf("%d %d\n", tempi, tempj)
-			jobs = append(jobs, job{tempi, tempj})
-
-			if len(jobs) >= batchSize {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				jobs = make([]job, 0)
-				currCore++
-			}
 			tempi++
 			tempj--		
 		}
-		for i := range myChannels {
-			close(myChannels[i])
-		}
+		close(myChannel)
 
 		wg.Wait()	
+		// jobsWg.Wait()
 	}
 
-	// for i := range myChannels {
-	// 	close(myChannels[i])
-	// }
+	close(myChannel)
 
-	// wg.Wait()	
+	wg.Wait()	
 	
 	// fmt.Println()
 	// printMatrix(matrix)
