@@ -294,7 +294,7 @@ func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, sc
 	rows := len(matrix)
 	cols := len(matrix[0])
 	cores := *cores
-	myChannel := make(chan job, 6)
+	myChannel := make(chan job, 12)
 	// myChannels := make([]chan []job, cores)
 	// for i := 0; i < cores; i++ {
 	// 	myChannels[i] = make(chan []job)
@@ -310,7 +310,7 @@ func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, sc
 		tempj := j
 		// currCore := 0
 
-		myChannel := make(chan job, 6)
+		myChannel := make(chan job, 12)
 		for i := 0; i < cores; i++ {
 			wg.Add(1)
 			go process(myChannel, matrix, misMatchMap, scoringMatrix, i)
@@ -335,7 +335,7 @@ func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, sc
 	for i := 1; i < rows; i++ {
 		tempi := i
 		tempj := cols - 1
-		myChannel := make(chan job, 6)
+		myChannel := make(chan job, 12)
 		for i := 0; i < cores; i++ {
 			wg.Add(1)
 			go process(myChannel, matrix, misMatchMap, scoringMatrix, i)
