@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	// "math"
+	"math"
 	"sync"
 	"flag"
 	"strings"
@@ -49,6 +49,10 @@ var (
 	cores = flag.Int("cores", 12, "The number of cores to use.")
 )
 
+// My global variables
+var scoreMatrix [][]int
+var misMatchMap map[string]int
+var matrix [][]score
 
 /**
 * Creates a 2d matrix that uses the score struct for each element.
@@ -236,155 +240,122 @@ type job struct {
 	j int
 }
 
-func process(ch chan []job, matrix [][]score, misMatchMap map[string]int, scoringMatrix [][]int, myID int) {
-	match := *matchScore
-	mis := *misMatchScore
-	gap := *gap
+
+func scoreCells(begin []int, end []int) {
+	// match := *matchScore
+	// mis := *misMatchScore
 	s1 := *s1
 	s2 := *s2
 	var upVal, leftVal, diaVal int
-	for  {
-		msg, ok := <- ch
-		if !ok {
-			wg.Done()
-			return
-		} 
-
-		for _, job := range msg {
-			i := job.i
-			j := job.j
-			upVal = matrix[i-1][j].value + gap
-			leftVal = matrix[i][j-1].value + gap
-			if misMatchMap != nil {
-				firstCharLoc := misMatchMap[strings.ToUpper(string(s1[j-1]))]
-				secondCharLoc := misMatchMap[strings.ToUpper(string(s2[i-1]))]
-				matchScore := scoringMatrix[firstCharLoc][secondCharLoc]
-				diaVal = matrix[i-1][j-1].value + matchScore
+	i := begin[0]
+	j := begin[1]
+	for {
+		upVal = matrix[i-1][j].value + *gap
+		leftVal = matrix[i][j-1].value + *gap
+		if misMatchMap != nil {
+			firstCharLoc := int(misMatchMap[strings.ToUpper(string(s1[j-1]))])
+			secondCharLoc := int(misMatchMap[strings.ToUpper(string(s2[i-1]))])
+			matchScore := scoreMatrix[firstCharLoc][secondCharLoc]
+			diaVal = matrix[i-1][j-1].value + matchScore
+		} else {
+			if s1[j-1] == s2[i-1] {
+				diaVal = matrix[i-1][j-1].value + *matchScore
 			} else {
-				if s1[j-1] == s2[i-1] {
-					diaVal = matrix[i-1][j-1].value + match
-				} else {
-					diaVal = matrix[i-1][j-1].value + mis
-				}
-			}
-
-			if diaVal > upVal && leftVal < diaVal {
-				matrix[i][j].value = diaVal
-				matrix[i][j].direction = diagonal
-				matrix[i][j].leftBase = string(s2[i-1])
-				matrix[i][j].topBase = string(s1[j-1])
-
-			} else if upVal > leftVal {
-				matrix[i][j].value = upVal
-				matrix[i][j].direction = up
-				matrix[i][j].leftBase = string(s2[i-1])
-				matrix[i][j].topBase = "-"
-			} else {
-				matrix[i][j].value = leftVal
-				matrix[i][j].direction = left
-				matrix[i][j].leftBase = "-"
-				matrix[i][j].topBase = string(s1[j-1])
+				diaVal = matrix[i-1][j-1].value + *misMatchScore
 			}
 		}
-		jobsWg.Done()
+
+		if diaVal > upVal && leftVal < diaVal {
+			matrix[i][j].value = diaVal
+			matrix[i][j].direction = diagonal
+			matrix[i][j].leftBase = string(s2[i-1])
+			matrix[i][j].topBase = string(s1[j-1])
+
+		} else if upVal > leftVal {
+			matrix[i][j].value = upVal
+			matrix[i][j].direction = up
+			matrix[i][j].leftBase = string(s2[i-1])
+			matrix[i][j].topBase = "-"
+		} else {
+			matrix[i][j].value = leftVal
+			matrix[i][j].direction = left
+			matrix[i][j].leftBase = "-"
+			matrix[i][j].topBase = string(s1[j-1])
+		}
+
+		i++
+		j--
+		if i > end[0] || j < end[1] {
+			break
+		}
 	}
+	wg.Done()
 }
 
-func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scoringMatrix [][]int, misMatchMap map[string]int) {
-	// Creating communication channels
+func globalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scoringMatrix [][]int, misMatchMap map[string]int) {
 	rows := len(matrix)
 	cols := len(matrix[0])
 	cores := *cores
-	myChannels := make([]chan []job, cores)
-	// for i := 0; i < cores; i++ {
-	// 	myChannels[i] = make(chan []job)
-	// 	wg.Add(1)
-	// 	go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
-	// }
-	batchSize := 12
-
-	// Creating and assigning jobs for
-	//diagnols that start from the first row.
+	// batchSize := 4
+	var finalPos []int
+	fmt.Println("Part 1:")
 	for j := 1; j < cols; j++ {
-		jobs := make([]job, 0)
-		tempj := j
-		currCore := 0
-		for i := 0; i < cores; i++ {
-			myChannels[i] = make(chan []job)
+		batchSize := int(math.Ceil(float64(j)/float64(cores)))
+		// batchSize := 6
+		if j >= rows {
+			finalPos = []int{rows-1,1}
+		} else {
+			finalPos = []int{j,1}
+		}
+
+		for batch := 0; batch < cores; batch++ {
 			wg.Add(1)
-			go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
-		}
-		for i := 1; i < rows; i++ {
-			if tempj < 1 {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				currCore++
+			beginPos := []int{(1+(batch*batchSize)), (j-(batch*batchSize))}
+			endBatch := []int{beginPos[0]+(batchSize-1), beginPos[1]-(batchSize-1)}
+			if endBatch[0] >= finalPos[0] || endBatch[1] <= finalPos[1] {
+				// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], finalPos[0], finalPos[1])
+				go scoreCells(beginPos, finalPos)
+				// fmt.Println()
 				break
-			} 
-			// fmt.Printf("%d %d\n", i, tempj)
-			jobs = append(jobs, job{i, tempj})
-
-			if len(jobs) >= batchSize {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				jobs = make([]job, 0)
-				currCore++
 			}
-			tempj--
+			go scoreCells(beginPos, endBatch)
+			// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], endBatch[0], endBatch[1])
 		}
-		for i := range myChannels {
-			close(myChannels[i])
-		}
-
-		wg.Wait()	
-	}
-	// Creating and assigning jobs for
-	//diagnols that start from the last col.
-	for i := 1; i < rows; i++ {
-		tempi := i
-		tempj := cols - 1
-		currCore := 0
-		jobs := make([]job, 0)
-		for i := 0; i < cores; i++ {
-			myChannels[i] = make(chan []job)
-			wg.Add(1)
-			go process(myChannels[i], matrix, misMatchMap, scoringMatrix, i)
-		}
-		for {
-			if tempj < 1 || tempi >= rows {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				currCore++
-				break
-			} 
-
-			// fmt.Printf("%d %d\n", tempi, tempj)
-			jobs = append(jobs, job{tempi, tempj})
-
-			if len(jobs) >= batchSize {
-				jobsWg.Add(1)
-				myChannels[currCore%cores] <- jobs
-				jobs = make([]job, 0)
-				currCore++
-			}
-			tempi++
-			tempj--		
-		}
-		for i := range myChannels {
-			close(myChannels[i])
-		}
-
-		wg.Wait()	
+		wg.Wait()
 	}
 
-	// for i := range myChannels {
-	// 	close(myChannels[i])
-	// }
-
-	// wg.Wait()	
-	
 	// fmt.Println()
-	// printMatrix(matrix)
+
+	ithDiff := rows-cols
+	jthDiff := cols-rows
+	j := cols-1
+	for i := 2; i < rows; i++ {
+		batchSize := int(math.Ceil(float64(rows-i+1)/float64(cores)))
+		// batchSize := 6
+		finalPos := []int{j+ithDiff,i+jthDiff}
+		if finalPos[0] >= rows && finalPos[1] <= 0{
+			finalPos[0], finalPos[1] = rows-1, 1
+		} else if finalPos[0] >= rows {
+			finalPos[0] = rows-1
+		} else if finalPos[1] <= 0 {
+			finalPos[1] = 1
+		}
+
+		for batch := 0; batch < cores; batch++ {
+			wg.Add(1)
+			beginPos := []int{(i+(batch*batchSize)), (j-(batch*batchSize))}
+			endBatch := []int{beginPos[0]+(batchSize-1), beginPos[1]-(batchSize-1)}
+			if endBatch[0] >= finalPos[0] || endBatch[1] <= finalPos[1] {
+				// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], finalPos[0], finalPos[1])
+				go scoreCells(beginPos, finalPos)
+				// fmt.Println()
+				break
+			}
+			// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], endBatch[0], endBatch[1])
+			go scoreCells(beginPos, endBatch)
+		}
+		wg.Wait()
+	}
 
 	var topSeq, leftSeq, matcher []string
 	currElement := matrix[rows-1][cols-1]
@@ -412,9 +383,6 @@ func diaGlobalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, sc
 		}
 		currElement = matrix[currX][currY]
 	}
-
-	// fmt.Println("Final Matrix:")
-	// printMatrix(matrix)
 
 	fmt.Printf("The Total Score is %d\n", totalScore)
 	seqPerLine := 50
@@ -455,8 +423,7 @@ func main() {
 		extractFasta(*s2, s2)
 	}
 
-	var scoreMatrix [][]int
-	var misMatchMap map[string]int
+
 	var err error
 
 	// Retrieve scoring matrix 
@@ -472,13 +439,13 @@ func main() {
 		scoreMatrix, misMatchMap, err = readScoringMatrix("PAM250")
 	}
 
-	matrix := makeMatrix(len(*s1)+1, len(*s2)+1)
+	matrix = makeMatrix(len(*s1)+1, len(*s2)+1)
 
 	// Is alignment global or local
 	if strings.ToLower(*alignType) == "global" {
 		initGlobalMatrix(matrix, *gap, *s1, *s2)
 		// printMatrix(matrix)
-		diaGlobalAlignment(matrix, *matchScore, *misMatchScore, *gap, *s1, *s2, scoreMatrix, misMatchMap)
+		globalAlignment(matrix, *matchScore, *misMatchScore, *gap, *s1, *s2, scoreMatrix, misMatchMap)
 		// printMatrix(matrix)
 	} else if strings.ToLower(*alignType) == "local" {
 		initLocalMatrix(matrix, *s1, *s2)

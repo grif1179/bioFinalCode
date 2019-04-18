@@ -11,8 +11,8 @@
             "mode": "auto",
             "program": "${fileDirname}",
             "env": {},
-            "args": ["-type", "global","-s1", "GTAAC", "-s2", "GATAGG"]
-            // "args": ["-type", "global","-s1", "../data/DNA_seq1.fa", "-s2", "../data/DNA_seq2.fa"]
+            // "args": ["-type", "global","-s1", "GTAACAGCTTGACC", "-s2", "GATAGGAAGAT", "cores", "4"]
+            "args": ["-type", "global","-s1", "DNA_seq1.fa", "-s2", "DNA_seq2.fa"]
         }
     ]
 }
