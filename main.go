@@ -389,6 +389,28 @@ func globalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scori
 		currElement = matrix[currX][currY]
 	}
 
+	if rows < cols {
+		if len(matcher) != rows {
+			diff := (cols-1) - len(matcher)
+			blanks := strings.Split(strings.Repeat(" ", diff), "")
+			gaps := strings.Split(strings.Repeat("-", diff), "")
+
+			matcher = append(blanks, matcher...)
+			leftSeq = append(gaps, leftSeq...)
+			topSeq = append(strings.Split(s1[0:diff], ""), topSeq...)
+		}
+	} else if rows > cols {
+		if len(matcher) != cols {
+			diff := (rows-1) - len(matcher)
+			blanks := strings.Split(strings.Repeat(" ", diff), "")
+			gaps := strings.Split(strings.Repeat("-", diff), "")
+
+			matcher = append(blanks, matcher...)
+			topSeq = append(gaps, topSeq...)
+			leftSeq = append(strings.Split(s2[0:diff], ""), leftSeq...)		
+		}
+	}
+
 	fmt.Printf("The Total Score is %d\n", totalScore)
 	seqPerLine := 50
 	for i := 0; i < len(topSeq); i += seqPerLine {
@@ -405,8 +427,6 @@ func globalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scori
 		}
 	}
 }
-
-
 
 /**
 * Returns the value and location of the largest score in the matrix.
@@ -482,8 +502,6 @@ func smScoreCells(begin []int, end []int) {
 	}
 	wg.Done()
 }
-
-
 
 /**
 * Performs the local alignment of two given sequences.
@@ -593,8 +611,27 @@ func localAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scorin
 		currElement = matrix[currX][currY]
 	}
 
-	// fmt.Println("Final Matrix:")
-	// printMatrix(matrix)
+	if rows < cols {
+		if len(matcher) != rows {
+			diff := (cols-1) - len(matcher)
+			blanks := strings.Split(strings.Repeat(" ", diff), "")
+			gaps := strings.Split(strings.Repeat("-", diff), "")
+
+			matcher = append(blanks, matcher...)
+			leftSeq = append(gaps, leftSeq...)
+			topSeq = append(strings.Split(s1[0:diff], ""), topSeq...)
+		}
+	} else if rows > cols {
+		if len(matcher) != cols {
+			diff := (rows-1) - len(matcher)
+			blanks := strings.Split(strings.Repeat(" ", diff), "")
+			gaps := strings.Split(strings.Repeat("-", diff), "")
+
+			matcher = append(blanks, matcher...)
+			topSeq = append(gaps, topSeq...)
+			leftSeq = append(strings.Split(s2[0:diff], ""), leftSeq...)		
+		}
+	}
 
 	fmt.Printf("The Total Score is %d\n", totalScore)
 	seqPerLine := 50
