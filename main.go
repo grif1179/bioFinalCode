@@ -240,7 +240,6 @@ type job struct {
 	j int
 }
 
-
 func scoreCells(begin []int, end []int) {
 	// match := *matchScore
 	// mis := *misMatchScore
@@ -296,11 +295,17 @@ func globalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scori
 	rows := len(matrix)
 	cols := len(matrix[0])
 	cores := *cores
+	var numOfElements int
 	// batchSize := 4
 	var finalPos []int
 	fmt.Println("Part 1:")
 	for j := 1; j < cols; j++ {
-		batchSize := int(math.Ceil(float64(j)/float64(cores)))
+		if j >= rows {
+			numOfElements = rows
+		} else {
+			numOfElements = j
+		}
+		batchSize := int(math.Ceil(float64(numOfElements)/float64(cores)))
 		// batchSize := 6
 		if j >= rows {
 			finalPos = []int{rows-1,1}
@@ -402,6 +407,213 @@ func globalAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scori
 }
 
 
+
+/**
+* Returns the value and location of the largest score in the matrix.
+*/
+func findHighestValue(matrix [][]score) (topValue, x, y int) {
+	var currLargest, currX, currY int
+	var currValue int
+	for i := 0; i < len(matrix); i++ {
+		for j := 0; j < len(matrix[i]); j++ {
+			currValue = matrix[i][j].value
+			if currValue > currLargest {
+				currLargest = currValue
+				currX = i
+				currY = j
+			}
+		}
+	}
+	return currLargest, currX, currY
+}
+
+
+func smScoreCells(begin []int, end []int) {
+	// match := *matchScore
+	// mis := *misMatchScore
+	s1 := *s1
+	s2 := *s2
+	var upVal, leftVal, diaVal int
+	i := begin[0]
+	j := begin[1]
+	for {
+		upVal = matrix[i-1][j].value + *gap
+		leftVal = matrix[i][j-1].value + *gap
+		if misMatchMap != nil {
+			firstCharLoc := int(misMatchMap[strings.ToUpper(string(s1[j-1]))])
+			secondCharLoc := int(misMatchMap[strings.ToUpper(string(s2[i-1]))])
+			matchScore := scoreMatrix[firstCharLoc][secondCharLoc]
+			diaVal = matrix[i-1][j-1].value + matchScore
+		} else {
+			if s1[j-1] == s2[i-1] {
+				diaVal = matrix[i-1][j-1].value + *matchScore
+			} else {
+				diaVal = matrix[i-1][j-1].value + *misMatchScore
+			}
+		}
+
+		if diaVal < 0 && upVal < 0 && leftVal < 0 {
+			matrix[i][j].value = 0
+			matrix[i][j].direction = nothing
+			matrix[i][j].leftBase = ""
+			matrix[i][j].topBase = ""
+		} else if diaVal > upVal && leftVal < diaVal {
+			matrix[i][j].value = diaVal
+			matrix[i][j].direction = diagonal
+			matrix[i][j].leftBase = string(s2[i-1])
+			matrix[i][j].topBase = string(s1[j-1])
+		} else if upVal > leftVal {
+			matrix[i][j].value = upVal
+			matrix[i][j].direction = up
+			matrix[i][j].leftBase = string(s2[i-1])
+			matrix[i][j].topBase = "-"
+		} else {
+			matrix[i][j].value = leftVal
+			matrix[i][j].direction = left
+			matrix[i][j].leftBase = "-"
+			matrix[i][j].topBase = string(s1[j-1])
+		}
+
+		i++
+		j--
+		if i > end[0] || j < end[1] {
+			break
+		}
+	}
+	wg.Done()
+}
+
+
+
+/**
+* Performs the local alignment of two given sequences.
+* matrix: A 2-D slice with each element being a score struct
+* match: Value given to a match if a scoring matrix isn't given.
+* mis: Value given to a mismatch if a scoring matrix isn't given
+* gap: Value given to a gap.
+* s1: String containing the first sequence.
+* s2: String containing the second sequence.
+* scoringMatrix: A 2-D integer slice containing the scores given to mismatches and matches.
+* misMatchMap: A map that takes a string as a key to retrieve the corrosponding location in the 
+*              scoring matrix.
+*/
+func localAlignment(matrix [][]score, match, mis, gap int, s1, s2 string, scoringMatrix [][]int, misMatchMap map[string]int) {
+	rows := len(matrix)
+	cols := len(matrix[0])
+	cores := *cores
+	var numOfElements int
+	// batchSize := 4
+	var finalPos []int
+	fmt.Println("Part 1:")
+	for j := 1; j < cols; j++ {
+		if j >= rows {
+			numOfElements = rows
+		} else {
+			numOfElements = j
+		}
+		batchSize := int(math.Ceil(float64(numOfElements)/float64(cores)))
+		// batchSize := 6
+		if j >= rows {
+			finalPos = []int{rows-1,1}
+		} else {
+			finalPos = []int{j,1}
+		}
+
+		for batch := 0; batch < cores; batch++ {
+			wg.Add(1)
+			beginPos := []int{(1+(batch*batchSize)), (j-(batch*batchSize))}
+			endBatch := []int{beginPos[0]+(batchSize-1), beginPos[1]-(batchSize-1)}
+			if endBatch[0] >= finalPos[0] || endBatch[1] <= finalPos[1] {
+				// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], finalPos[0], finalPos[1])
+				go smScoreCells(beginPos, finalPos)
+				// fmt.Println()
+				break
+			}
+			go smScoreCells(beginPos, endBatch)
+			// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], endBatch[0], endBatch[1])
+		}
+		wg.Wait()
+	}
+
+	// fmt.Println()
+
+	ithDiff := rows-cols
+	jthDiff := cols-rows
+	j := cols-1
+	for i := 2; i < rows; i++ {
+		batchSize := int(math.Ceil(float64(rows-i+1)/float64(cores)))
+		// batchSize := 6
+		finalPos := []int{j+ithDiff,i+jthDiff}
+		if finalPos[0] >= rows && finalPos[1] <= 0{
+			finalPos[0], finalPos[1] = rows-1, 1
+		} else if finalPos[0] >= rows {
+			finalPos[0] = rows-1
+		} else if finalPos[1] <= 0 {
+			finalPos[1] = 1
+		}
+
+		for batch := 0; batch < cores; batch++ {
+			wg.Add(1)
+			beginPos := []int{(i+(batch*batchSize)), (j-(batch*batchSize))}
+			endBatch := []int{beginPos[0]+(batchSize-1), beginPos[1]-(batchSize-1)}
+			if endBatch[0] >= finalPos[0] || endBatch[1] <= finalPos[1] {
+				// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], finalPos[0], finalPos[1])
+				go smScoreCells(beginPos, finalPos)
+				// fmt.Println()
+				break
+			}
+			// fmt.Printf("Batch %d: (%d, %d) -> (%d, %d)\n", batch, beginPos[0], beginPos[1], endBatch[0], endBatch[1])
+			go smScoreCells(beginPos, endBatch)
+		}
+		wg.Wait()
+	}
+
+	totalScore, currX, currY := findHighestValue(matrix)
+	var topSeq, leftSeq, matcher []string
+	currElement := matrix[rows-1][cols-1]
+
+	for currElement.topBase != "" && currElement.leftBase != "" {
+		topSeq = append([]string{currElement.topBase}, topSeq...)
+		leftSeq = append([]string{currElement.leftBase}, leftSeq...)
+		if currElement.direction == up {
+			currX--	
+			matcher = append([]string{" "}, matcher...)
+		} else if currElement.direction == left {
+			currY--
+			matcher = append([]string{" "}, matcher...)
+		} else {
+			currX--
+			currY--
+			if currElement.leftBase == currElement.topBase {
+				matcher = append([]string{"|"}, matcher...)
+			} else {
+				matcher = append([]string{":"}, matcher...)
+			}
+		}
+		currElement = matrix[currX][currY]
+	}
+
+	// fmt.Println("Final Matrix:")
+	// printMatrix(matrix)
+
+	fmt.Printf("The Total Score is %d\n", totalScore)
+	seqPerLine := 50
+	for i := 0; i < len(topSeq); i += seqPerLine {
+		if i+seqPerLine >= len(topSeq) {
+			fmt.Printf("s1: %s\n", strings.Join(topSeq[i:], " "))
+			fmt.Printf("    %s\n", strings.Join(matcher[i:], " "))
+			fmt.Printf("s2: %s\n", strings.Join(leftSeq[i:], " "))
+		} else {
+			fmt.Printf("s1: %s\n", strings.Join(topSeq[i:i+seqPerLine], " "))
+			fmt.Printf("    %s\n", strings.Join(matcher[i:i+seqPerLine], " "))
+			fmt.Printf("s2: %s\n", strings.Join(leftSeq[i:i+seqPerLine], " "))
+
+			fmt.Printf("\n")
+		}
+	}
+}
+
+
 func main() {
 	// lengthX := 5
 	// lengthY := 5
@@ -449,7 +661,7 @@ func main() {
 		// printMatrix(matrix)
 	} else if strings.ToLower(*alignType) == "local" {
 		initLocalMatrix(matrix, *s1, *s2)
-		// localAlignment(matrix, *matchScore, *misMatchScore, *gap, *s1, *s2, scoreMatrix, misMatchMap)
+		localAlignment(matrix, *matchScore, *misMatchScore, *gap, *s1, *s2, scoreMatrix, misMatchMap)
 	} else {
 		fmt.Fprintf(os.Stderr, "error: Invalid alignment type selected.\n")
 		os.Exit(1)
